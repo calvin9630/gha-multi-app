@@ -1,0 +1,16 @@
+
+name: AppA daily 08:00 TPE
+on:
+  schedule:
+    - cron: "0 0 * * *"   # 00:00 UTC = 08:00 台北
+  workflow_dispatch:
+jobs:
+  run:
+    runs-on: [self-hosted, Windows, X64]
+    concurrency: { group: appA-daily, cancel-in-progress: false }
+    env: { TZ: Asia/Taipei }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run AppA
+        shell: pwsh
+        run: ./ci/run_app.ps1 -AppName "appA" -Entry "apps/appA/main.py" -ReqFile "apps/appA/requirements.txt"

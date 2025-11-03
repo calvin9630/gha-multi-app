@@ -1,0 +1,17 @@
+
+name: AppC every 5 minutes
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+jobs:
+  run:
+    runs-on: [self-hosted, Windows, X64]
+    concurrency: { group: appC-every5, cancel-in-progress: true }
+    env: { TZ: Asia/Taipei }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run AppC
+        shell: pwsh
+        run: ./ci/run_app.ps1 -AppName "appC" -Entry "apps/appC/main.py" -ReqFile "apps/appC/requirements.txt"
+
