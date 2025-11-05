@@ -8,11 +8,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# ---- 路徑與環境：跨平台處理 ----
+# ---- 修正這裡：改變變數名稱避免衝突 ----
 if (-not $BaseWorkDir -or $BaseWorkDir -eq "") {
   # Windows 用 USERPROFILE；Linux/Mac 用 HOME
-  $home = if ($IsWindows) { $env:USERPROFILE } else { $env:HOME }
-  $BaseWorkDir = Join-Path $home "AppDeploy"
+  $myHome = if ($IsWindows) { $env:USERPROFILE } else { $env:HOME }
+  $BaseWorkDir = Join-Path $myHome "AppDeploy"
 }
 
 $AppRoot = Join-Path $BaseWorkDir $AppName
