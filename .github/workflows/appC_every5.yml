@@ -1,17 +1,36 @@
-
 name: AppC every 5 minutes
+
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/5 * * * *"   # UTC
   workflow_dispatch:
+
 jobs:
   run:
-    runs-on: [self-hosted, Windows, X64]
-    concurrency: { group: appC-every5, cancel-in-progress: true }
-    env: { TZ: Asia/Taipei }
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run AppC
-        shell: pwsh
-        run: ./ci/run_app.ps1 -AppName "appC" -Entry "apps/appC/main.py" -ReqFile "apps/appC/requirements.txt"
+    runs-on: ubuntu-latest
 
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PowerShell (pwsh) on Ubuntu
+        run: |
+          set -e
+          sudo apt-get update
+          sudo apt-get install -y wget apt-transport-https software-properties-common lsb-release gnupg
+          UBVER="$(lsb_release -rs)"
+          wget -q "https://packages.microsoft.com/config/ubuntu/${UBVER}/packages-microsoft-prod.deb"
+          sudo dpkg -i packages-microsoft-prod.deb
+          sudo apt-get update
+          sudo apt-get install -y powershell
+          pwsh --version
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run AppC (PowerShell)
+        shell: pwsh
+        run: |
+          ./ci/run_app.ps1 -AppName "appC" -Entry "apps/appC/main.py" -ReqFile "apps/appC/requirements.txt"
