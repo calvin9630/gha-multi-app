@@ -1,16 +1,15 @@
 param(
   [Parameter(Mandatory = $true)] [string]$AppName,
-  [Parameter(Mandatory = $true)] [string]$Entry,    # 例如: "apps/appC/main.py"
-  [Parameter(Mandatory = $true)] [string]$ReqFile,  # 例如: "apps/appC/requirements.txt"
+  [Parameter(Mandatory = $true)] [string]$Entry,    # 例: "apps/appC/main.py"
+  [Parameter(Mandatory = $true)] [string]$ReqFile,  # 例: "apps/appC/requirements.txt"
   [string]$PyVersion = "3.11",
   [string]$BaseWorkDir
 )
 
 $ErrorActionPreference = "Stop"
 
-# ---- 修正這裡：改變變數名稱避免衝突 ----
+# ---- 基底工作目錄（跨平台）----
 if (-not $BaseWorkDir -or $BaseWorkDir -eq "") {
-  # Windows 用 USERPROFILE；Linux/Mac 用 HOME
   $myHome = if ($IsWindows) { $env:USERPROFILE } else { $env:HOME }
   $BaseWorkDir = Join-Path $myHome "AppDeploy"
 }
@@ -23,42 +22,47 @@ $LogDir  = Join-Path $AppRoot "logs"
 # ---- 建立資料夾 ----
 New-Item -ItemType Directory -Force -Path $AppRoot,$LogDir | Out-Null
 
-# 重新同步 code：為了簡單與可預期，直接刪除重建 CodeDir（避免 rsync/robocopy 依賴）
+# 重新同步程式碼：刪掉舊的 code 再複製
 if (Test-Path $CodeDir) { Remove-Item -Recurse -Force $CodeDir }
 New-Item -ItemType Directory -Force -Path $CodeDir | Out-Null
 
 Write-Host "== Sync code to $CodeDir =="
-# 複製整個工作目錄到 CodeDir
 Copy-Item -Path (Join-Path $PWD '*') -Destination $CodeDir -Recurse -Force -ErrorAction Stop
 
-# 清掉不需要的目錄（跨平台做法）
+# 排除不需要的資料夾
 @(".git", ".github", ".venv", ".pytest_cache", "node_modules") | ForEach-Object {
   $p = Join-Path $CodeDir $_
   if (Test-Path $p) { Remove-Item -Recurse -Force $p -ErrorAction SilentlyContinue }
 }
 
-# ---- 建立/取得 venv（跨平台）----
-# 在 GitHub Actions 我們已用 actions/setup-python 指定版本，這裡直接用 PATH 中的 python
-# 若你一定要用 py launcher（只在 Windows 有），可加判斷；這裡統一用 python 最穩定
+# ---- 建立 venv（用 PATH 中的 python）----
 if (-not (Test-Path $VenvDir)) {
   Write-Host "== Create venv at $VenvDir =="
   python -m venv "$VenvDir"
 }
 
-# venv 下可執行檔的子目錄：Windows 是 Scripts、Linux/Mac 是 bin
-$VenvBin = if ($IsWindows) { Join-Path $VenvDir "Scripts" } else { Join-Path $VenvDir "bin" }
-$Pip = Join-Path $VenvBin (if ($IsWindows) { "pip.exe" } else { "pip" })
-$Py  = Join-Path $VenvBin (if ($IsWindows) { "python.exe" } else { "python" })
+# 依平臺決定 venv 子目錄與可執行檔名稱（用傳統 if/else）
+if ($IsWindows) {
+  $VenvBin = Join-Path $VenvDir "Scripts"
+  $pipName = "pip.exe"
+  $pyName  = "python.exe"
+} else {
+  $VenvBin = Join-Path $VenvDir "bin"
+  $pipName = "pip"
+  $pyName  = "python"
+}
+$Pip = Join-Path $VenvBin $pipName
+$Py  = Join-Path $VenvBin $pyName
 
 # 升級 pip / wheel
 & $Pip install --upgrade pip wheel > $null
 
-# ---- 安裝套件（以 requirements 的雜湊判斷是否需要重裝）----
+# ---- 安裝套件（依 requirements 雜湊判斷）----
 $ReqPath = Join-Path $CodeDir $ReqFile
 if (-not (Test-Path $ReqPath)) { throw "Requirements file not found: $ReqPath" }
 
-$HashFile  = Join-Path $AppRoot "requirements.sha256"
-$NewHash   = (Get-FileHash $ReqPath -Algorithm SHA256).Hash
+$HashFile   = Join-Path $AppRoot "requirements.sha256"
+$NewHash    = (Get-FileHash $ReqPath -Algorithm SHA256).Hash
 $NeedInstall = $true
 if (Test-Path $HashFile) {
   $OldHash = Get-Content $HashFile -Raw
@@ -74,16 +78,15 @@ if ($NeedInstall) {
 }
 
 # ---- 執行主程式並寫日誌 ----
-$Date     = (Get-Date).ToString("yyyy-MM-dd")
-$LogFile  = Join-Path $LogDir "$($AppName)_$Date.log"
+$Date      = (Get-Date).ToString("yyyy-MM-dd")
+$LogFile   = Join-Path $LogDir "$($AppName)_$Date.log"
 $EntryPath = Join-Path $CodeDir $Entry
 if (-not (Test-Path $EntryPath)) { throw "Entry script not found: $EntryPath" }
 
 Write-Host "== Run $EntryPath =="
-# 將 stdout/stderr 追加到每日 log
 & $Py "$EntryPath" *>> "$LogFile"
 
-# ---- 清理舊日誌（保留 14 天）----
+# ---- 清理 14 天前的舊日誌 ----
 Get-ChildItem $LogDir -Filter "$AppName*_*.log" |
   Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-14) } |
   Remove-Item -Force -ErrorAction SilentlyContinue
